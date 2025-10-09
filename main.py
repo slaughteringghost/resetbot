@@ -12,9 +12,10 @@ import os
 import secrets
 import string
 import threading
+from PIL import Image  # Pillow replaces deprecated imghdr
 
 # === CONFIGURATION ===
-BOT_TOKEN = "8242862841:AAHGn9y3SnoWGdjustOMyY8Bm9Ja2Vyj6Vg"
+BOT_TOKEN = "YOUR_BOT_TOKEN"
 PRIVATE_CHANNEL = "-1002628211220"
 BACKUP_CHANNEL = "@pytimebruh"
 CHAT_GC = "@HazyGC"
@@ -281,9 +282,10 @@ def main():
         handle_file
     ))
 
-    print("🚀 Bot is running (old version)...")
+    print("🚀 Bot is running on Python 3.13...")
     updater.start_polling(clean=True)
     updater.idle()
 
 if __name__ == "__main__":
     main()
+

@@ -1,7 +1,12 @@
 services:
   - type: worker
-    name: hazys-file-bot
+    name: telegram-bot
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false   # You can set this in Render Dashboard → Environment → Environment Variables

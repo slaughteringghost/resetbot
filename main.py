@@ -28,23 +28,25 @@ CHANNELS = [
     {"name": "💬 Chat Group", "url": "https://t.me/HazyGC", "id": CHAT_GC}
 ]
 
+# FIXED: Database path for Render
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'file_links.db')
 db_lock = Lock()
 
 def init_db():
     with db_lock:
-        if os.path.exists('file_links.db'):
+        if os.path.exists(DB_PATH):
             try:
-                with sqlite3.connect('file_links.db') as conn:
+                with sqlite3.connect(DB_PATH) as conn:
                     cursor = conn.execute("PRAGMA table_info(file_links)")
                     columns = [row[1] for row in cursor.fetchall()]
                     if len(columns) != 3 or columns != ['file_id', 'file_type', 'start_param']:
-                        os.remove('file_links.db')
+                        os.remove(DB_PATH)
                         logger.info("Old database removed, creating new one...")
             except Exception as e:
                 logger.error(f"Database check error: {e}")
-                os.remove('file_links.db')
+                os.remove(DB_PATH)
         
-        with sqlite3.connect('file_links.db') as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             conn.execute('''CREATE TABLE IF NOT EXISTS file_links
                          (file_id TEXT PRIMARY KEY, file_type TEXT, start_param TEXT)''')
             conn.execute('''CREATE TABLE IF NOT EXISTS users
@@ -56,24 +58,24 @@ def generate_start_param():
 
 def save_file_link(file_id, file_type, start_param):
     with db_lock:
-        with sqlite3.connect('file_links.db') as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             conn.execute("INSERT OR REPLACE INTO file_links VALUES (?, ?, ?)",
                        (file_id, file_type, start_param))
 
 def get_file_info(start_param):
     with db_lock:
-        with sqlite3.connect('file_links.db') as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.execute("SELECT file_id, file_type FROM file_links WHERE start_param = ?", (start_param,))
             return cursor.fetchone()
 
 def save_user(user_id):
     with db_lock:
-        with sqlite3.connect('file_links.db') as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             conn.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
 
 def get_all_users():
     with db_lock:
-        with sqlite3.connect('file_links.db') as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.execute("SELECT user_id FROM users")
             return [row[0] for row in cursor.fetchall()]
 
@@ -161,7 +163,7 @@ async def handle_verification(update: Update, context: CallbackContext):
         if file_info:
             file_id, file_type = file_info
             try:
-                await send_file_by_type(context.bot, user_id, file_id, file_type)
+                await send_file_by_type_bot(context.bot, user_id, file_id, file_type)
                 await query.edit_message_text("✅ *File sent successfully!*", parse_mode='Markdown')
                 return
             except Exception as e:
@@ -182,7 +184,7 @@ async def handle_verification(update: Update, context: CallbackContext):
         parse_mode='Markdown'
     )
 
-async def send_file_by_type(bot, chat_id, file_id, file_type):
+async def send_file_by_type_bot(bot, chat_id, file_id, file_type):
     """Send file based on type - for bot context"""
     send_methods = {
         'photo': bot.send_photo,
@@ -328,7 +330,7 @@ async def stats(update: Update, context: CallbackContext):
         return
     
     with db_lock:
-        with sqlite3.connect('file_links.db') as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             files_count = conn.execute("SELECT COUNT(*) FROM file_links").fetchone()[0]
             users_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     

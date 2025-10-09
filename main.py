@@ -15,7 +15,7 @@ import threading
 from PIL import Image  # Pillow replaces deprecated imghdr
 
 # === CONFIGURATION ===
-BOT_TOKEN = "YOUR_BOT_TOKEN"
+BOT_TOKEN = "8242862841:AAHGn9y3SnoWGdjustOMyY8Bm9Ja2Vyj6Vg"
 PRIVATE_CHANNEL = "-1002628211220"
 BACKUP_CHANNEL = "@pytimebruh"
 CHAT_GC = "@HazyGC"

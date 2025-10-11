@@ -1,17 +1,26 @@
 {
   "name": "instagram-reset-bot",
   "version": "1.0.0",
-  "description": "Instagram account reset Telegram bot",
-  "main": "index.js",
+  "description": "Professional Instagram password reset bot for Telegram",
+  "main": "bot.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node bot.js",
+    "dev": "nodemon bot.js"
   },
-  "dependencies": {
-    "telegraf": "^4.15.3",
-    "axios": "^1.6.2"
-  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "instagram",
+    "reset"
+  ],
+  "author": "yaplol",
   "license": "MIT",
-  "author": "D8N8D",
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "axios": "^1.7.2",
+    "uuid": "^9.0.1",
+    "express": "^4.19.2"
+  },
   "engines": {
     "node": ">=18.0.0"
   }

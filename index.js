@@ -3,46 +3,48 @@ const axios = require('axios');
 
 // Bot configuration
 const BOT_TOKEN = '8342949466:AAHIY_3_pqtFfeMoP4AaWJARkgHb-5snHR8';
-const MAIN_CHANNEL_ID = -1002628211220;
-const BACKUP_CHANNEL_USERNAME = 'pytimebruh';
 
 const bot = new Telegraf(BOT_TOKEN);
 
-// Instagram reset function
+// Instagram reset function with better headers
 async function instagramReset(email) {
     try {
+        // Random delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, Math.random() * 2000 + 1000));
+        
         const config = {
             url: 'https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/',
             method: 'post',
             headers: {
                 'content-type': 'application/x-www-form-urlencoded',
-                'cookie': 'csrftoken=BbJnjd.Jnw20VyXU0qSsHLV; mid=ZpZMygABAAH0176Z6fWvYiNly3y2; ig_did=BBBA0292-07BC-49C8-ACF4-AE242AE19E97; datr=ykyWZhA9CacxerPITDOHV5AE; ig_nrcb=1; dpr=2.75; wd=393x466',
+                'cookie': 'csrftoken=' + Math.random().toString(36).substring(2) + '; mid=' + Math.random().toString(36).substring(2),
                 'origin': 'https://www.instagram.com',
-                'referer': 'https://www.instagram.com/accounts/password/reset/?source=fxcal',
-                'user-agent': 'Mozilla/5.0 (Linux; Android 10; M2101K786) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
-                'x-csrftoken': 'BbJnjd.Jnw20VyXU0qSsHLV',
-                'x-ig-app-id': '1217981644879628'
+                'referer': 'https://www.instagram.com/accounts/password/reset/',
+                'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1',
+                'x-csrftoken': Math.random().toString(36).substring(2),
+                'x-ig-app-id': '1217981644879628',
+                'x-requested-with': 'XMLHttpRequest'
             },
-            data: `email_or_username=${encodeURIComponent(email)}&flow=fxcal`
+            data: `email_or_username=${encodeURIComponent(email)}&flow=fxcal`,
+            timeout: 10000
         };
 
         const response = await axios(config);
+        
+        // Check if rate limited
+        if (response.status === 429) {
+            return { error: 'Rate limited by Instagram. Please try again after some time.' };
+        }
+        
         return response.data;
     } catch (error) {
-        return { error: error.message };
-    }
-}
-
-// Check channel membership
-async function checkMembership(ctx) {
-    try {
-        const mainChannel = await ctx.telegram.getChatMember(MAIN_CHANNEL_ID, ctx.from.id);
-        const backupChannel = await ctx.telegram.getChatMember(`@${BACKUP_CHANNEL_USERNAME}`, ctx.from.id);
-        
-        return mainChannel.status !== 'left' && backupChannel.status !== 'left';
-    } catch (error) {
-        console.log('Membership check error:', error.message);
-        return false;
+        if (error.response?.status === 429) {
+            return { error: '🚫 Rate Limited: Too many requests. Wait 5-10 minutes.' };
+        } else if (error.code === 'ECONNABORTED') {
+            return { error: '⏰ Request timeout' };
+        } else {
+            return { error: error.message };
+        }
     }
 }
 
@@ -52,46 +54,21 @@ bot.start(async (ctx) => {
 
 *Commands:*
 /rst - Single account reset
-/blk - Bulk reset (max 10 accounts)
+/blk - Bulk reset (max 5 accounts)
 
 *Developer:* @yaplol
-*Channel:* @pytimebruh
 
-Join our channels to use the bot:`;
+Use the commands below to get started.`;
 
-    const keyboard = Markup.inlineKeyboard([
-        [Markup.button.url('📢 Main Channel', 'https://t.me/+YEObPfKXsK1hNjU9')],
-        [Markup.button.url('🔔 Backup Channel', `https://t.me/${BACKUP_CHANNEL_USERNAME}`)],
-        [Markup.button.callback('✅ Verify Join', 'verify_join')]
-    ]);
+    const keyboard = Markup.keyboard([
+        ['/rst', '/blk']
+    ]).resize();
 
     await ctx.replyWithMarkdown(welcomeText, keyboard);
 });
 
-// Verify join callback
-bot.action('verify_join', async (ctx) => {
-    await ctx.answerCbQuery();
-    const isMember = await checkMembership(ctx);
-    
-    if (isMember) {
-        await ctx.editMessageText(`✅ *Verified!*\n\nYou can now use:\n/rst - Single reset\n/blk - Bulk reset`, {
-            parse_mode: 'Markdown',
-            ...Markup.inlineKeyboard([
-                [Markup.button.callback('🔄 Refresh', 'verify_join')]
-            ])
-        });
-    } else {
-        await ctx.answerCbQuery('❌ Please join both channels first', { show_alert: true });
-    }
-});
-
 // Single reset command
 bot.command('rst', async (ctx) => {
-    const isMember = await checkMembership(ctx);
-    if (!isMember) {
-        return ctx.reply('❌ Please join our channels first and use /start');
-    }
-
     await ctx.reply('📧 Send Instagram username or email:', 
         Markup.forceReply().selective()
     );
@@ -99,12 +76,7 @@ bot.command('rst', async (ctx) => {
 
 // Bulk reset command  
 bot.command('blk', async (ctx) => {
-    const isMember = await checkMembership(ctx);
-    if (!isMember) {
-        return ctx.reply('❌ Please join our channels first and use /start');
-    }
-
-    await ctx.reply('📧 Send usernames/emails (one per line, max 10):',
+    await ctx.reply('📧 Send usernames/emails (one per line, max 5):',
         Markup.forceReply().selective()
     );
 });
@@ -142,7 +114,7 @@ bot.on('message', async (ctx) => {
     
     else if (replyText.includes('Send usernames/emails')) {
         // Bulk reset
-        const accounts = ctx.message.text.split('\n').slice(0, 10).filter(a => a.trim());
+        const accounts = ctx.message.text.split('\n').slice(0, 5).filter(a => a.trim());
         if (accounts.length === 0) return ctx.reply('❌ No valid accounts provided');
 
         const msg = await ctx.reply(`🔄 Processing ${accounts.length} accounts...`);
@@ -159,7 +131,7 @@ bot.on('message', async (ctx) => {
                 }
                 
                 // Update progress
-                if ((i + 1) % 3 === 0 || i === accounts.length - 1) {
+                if ((i + 1) % 2 === 0 || i === accounts.length - 1) {
                     await ctx.telegram.editMessageText(
                         ctx.chat.id, 
                         msg.message_id, 
@@ -168,7 +140,7 @@ bot.on('message', async (ctx) => {
                     );
                 }
                 
-                await new Promise(resolve => setTimeout(resolve, 1500));
+                await new Promise(resolve => setTimeout(resolve, 2000));
             } catch (error) {
                 results.push(`❌ ${account} (Error)`);
             }

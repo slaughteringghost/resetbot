@@ -227,7 +227,7 @@ async function displayWelcomeMessage(ctx) {
 /rst - Single account reset
 /blk - Bulk reset (max 5 accounts)
 
-*Developer:* ${DEV_HANDLE}
+*Developer:* @{DEV_HANDLE}
 
 Use the commands below to get started.
     `.trim();
@@ -316,7 +316,7 @@ Example: \`/rst example_user\`
 */blk user1 user2* - Reset multiple accounts (max 5)
 Example: \`/blk user1 user2 user3\`
 
-*Developer:* ${DEV_HANDLE}
+*Developer:* @{DEV_HANDLE}
     `.trim();
 
     await ctx.replyWithMarkdown(helpText);

@@ -54,8 +54,8 @@ bot.start(async (ctx) => {
 /rst - Single account reset
 /blk - Bulk reset (max 10 accounts)
 
-*Developer:* @D8N8D
-*Channel:* @Ergusia
+*Developer:* @yaplol
+*Channel:* @pytimebruh
 
 Join our channels to use the bot:`;
 

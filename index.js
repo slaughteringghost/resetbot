@@ -1,166 +1,333 @@
-const { Telegraf, Markup } = require('telegraf');
+const { Telegraf, Markup, session } = require('telegraf');
+const { message } = require('telegraf/filters');
 const axios = require('axios');
+const { v4: uuidv4 } = require('uuid');
+const express = require('express');
 
-// Bot configuration
-const BOT_TOKEN = '8342949466:AAHIY_3_pqtFfeMoP4AaWJARkgHb-5snHR8';
+// =========================
+// Configuration & Constants
+// =========================
 
-const bot = new Telegraf(BOT_TOKEN);
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const WEBHOOK_URL = process.env.RENDER_EXTERNAL_URL || process.env.WEBHOOK_URL;
+const PORT = process.env.PORT || 8000;
+const DEV_HANDLE = "@yaplol";
 
-// Instagram reset function with better headers
-async function instagramReset(email) {
-    try {
-        // Random delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, Math.random() * 2000 + 1000));
-        
-        const config = {
-            url: 'https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/',
-            method: 'post',
-            headers: {
-                'content-type': 'application/x-www-form-urlencoded',
-                'cookie': 'csrftoken=' + Math.random().toString(36).substring(2) + '; mid=' + Math.random().toString(36).substring(2),
-                'origin': 'https://www.instagram.com',
-                'referer': 'https://www.instagram.com/accounts/password/reset/',
-                'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1',
-                'x-csrftoken': Math.random().toString(36).substring(2),
-                'x-ig-app-id': '1217981644879628',
-                'x-requested-with': 'XMLHttpRequest'
-            },
-            data: `email_or_username=${encodeURIComponent(email)}&flow=fxcal`,
-            timeout: 10000
-        };
+// Channel Configuration
+const REQUIRED_CHANNELS = [
+    { 
+        id: "-1002628211220", 
+        name: "MAIN CHANNEL 📢", 
+        link: "https://t.me/c/2628211220/1" 
+    },
+    { 
+        id: "@pytimebruh", 
+        name: "BACKUP CHANNEL", 
+        link: "https://t.me/pytimebruh" 
+    },
+];
 
-        const response = await axios(config);
-        
-        // Check if rate limited
-        if (response.status === 429) {
-            return { error: 'Rate limited by Instagram. Please try again after some time.' };
+// Validation
+if (!TELEGRAM_TOKEN) {
+    console.error("❌ FATAL: TELEGRAM_BOT_TOKEN environment variable not set");
+    process.exit(1);
+}
+
+// =========================
+// Bot Initialization
+// =========================
+
+const bot = new Telegraf(TELEGRAM_TOKEN);
+const app = express();
+
+// Middleware Configuration
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Application State Management
+const applicationState = {
+    initialized: false,
+    webhookVerified: false,
+    error: null,
+    startupTime: new Date().toISOString(),
+    statistics: {
+        totalRequests: 0,
+        successfulResets: 0,
+        failedResets: 0
+    }
+};
+
+// =========================
+// Utility Functions
+// =========================
+
+/**
+ * Membership Verification Service
+ */
+class MembershipService {
+    static async verifyUserMembership(userId, ctx) {
+        try {
+            const verificationPromises = REQUIRED_CHANNELS.map(channel => 
+                this.checkSingleChannel(userId, channel.id, ctx)
+            );
+            
+            const results = await Promise.allSettled(verificationPromises);
+            return results.map(result => 
+                result.status === 'fulfilled' ? result.value : false
+            );
+        } catch (error) {
+            console.error(`Membership verification failed for user ${userId}:`, error);
+            return REQUIRED_CHANNELS.map(() => false);
         }
+    }
+
+    static async checkSingleChannel(userId, channelId, ctx) {
+        try {
+            const member = await ctx.telegram.getChatMember(channelId, userId);
+            return ['member', 'administrator', 'creator'].includes(member.status);
+        } catch (error) {
+            if (error.description?.includes('user not found')) {
+                return false;
+            }
+            console.warn(`Channel check failed for ${channelId}:`, error.message);
+            return false;
+        }
+    }
+
+    static generateVerificationKeyboard() {
+        const buttons = REQUIRED_CHANNELS.map(channel => 
+            [Markup.button.url(channel.name, channel.link)]
+        );
+        buttons.push([Markup.button.callback('✅ Verify Membership', 'verify_membership')]);
         
-        return response.data;
-    } catch (error) {
-        if (error.response?.status === 429) {
-            return { error: '🚫 Rate Limited: Too many requests. Wait 5-10 minutes.' };
-        } else if (error.code === 'ECONNABORTED') {
-            return { error: '⏰ Request timeout' };
+        return Markup.inlineKeyboard(buttons);
+    }
+}
+
+/**
+ * Instagram Reset Service
+ */
+class InstagramResetService {
+    constructor() {
+        this.httpClient = axios.create({
+            timeout: 15000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+    }
+
+    async executeResetMethods(target) {
+        const methods = [
+            this.methodEmailReset.bind(this),
+            this.methodAdvancedReset.bind(this),
+            this.methodWebReset.bind(this)
+        ];
+
+        try {
+            const results = await Promise.allSettled(
+                methods.map(method => method(target))
+            );
+            
+            const successful = results.some(result => 
+                result.status === 'fulfilled' && result.value === true
+            );
+            
+            this.updateStatistics(successful);
+            return successful;
+        } catch (error) {
+            console.error(`Reset execution error for ${target}:`, error.message);
+            this.updateStatistics(false);
+            return false;
+        }
+    }
+
+    async methodEmailReset(target) {
+        try {
+            const response = await this.httpClient.post(
+                'https://www.instagram.com/accounts/account_recovery_send_ajax/',
+                `email_or_username=${encodeURIComponent(target)}`,
+                { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
+            );
+            return response.status === 200 && response.data.includes('email_sent');
+        } catch {
+            return false;
+        }
+    }
+
+    async methodAdvancedReset(target) {
+        try {
+            const profileResponse = await this.httpClient.get(
+                `https://www.instagram.com/api/v1/users/web_profile_info/?username=${target}`,
+                { headers: { 'X-IG-App-ID': '936619743392459' } }
+            );
+            
+            const userId = profileResponse.data.data.user.id;
+            const deviceId = uuidv4();
+            
+            const resetResponse = await this.httpClient.post(
+                'https://i.instagram.com/api/v1/accounts/send_password_reset/',
+                `user_id=${userId}&device_id=${deviceId}`,
+                {
+                    headers: {
+                        'User-Agent': 'Instagram 6.12.1 Android (30/11; 480dpi; 1080x2004; HONOR; ANY-LX2; HNANY-Q1; qcom; ar_EG_#u-nu-arab)',
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }
+                }
+            );
+            
+            return resetResponse.data.includes('obfuscated_email');
+        } catch {
+            return false;
+        }
+    }
+
+    async methodWebReset(target) {
+        try {
+            const response = await this.httpClient.post(
+                'https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/',
+                `email_or_username=${encodeURIComponent(target)}&flow=fxcal`,
+                {
+                    headers: {
+                        'x-csrftoken': 'missing',
+                        'x-ig-app-id': '936619743392459',
+                        'x-requested-with': 'XMLHttpRequest',
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }
+                }
+            );
+            return response.data.status === 'ok';
+        } catch {
+            return false;
+        }
+    }
+
+    updateStatistics(success) {
+        applicationState.statistics.totalRequests++;
+        if (success) {
+            applicationState.statistics.successfulResets++;
         } else {
-            return { error: error.message };
+            applicationState.statistics.failedResets++;
         }
     }
 }
 
-// Start command
-bot.start(async (ctx) => {
-    const welcomeText = `🤖 *Instagram Reset Bot*
+// =========================
+// Message Handlers
+// =========================
+
+/**
+ * Welcome Message Handler
+ */
+async function displayWelcomeMessage(ctx) {
+    const welcomeText = `
+🤖 *Instagram Reset Bot*
 
 *Commands:*
 /rst - Single account reset
 /blk - Bulk reset (max 5 accounts)
 
-*Developer:* @yaplol
+*Developer:* ${DEV_HANDLE}
 
-Use the commands below to get started.`;
+Use the commands below to get started.
+    `.trim();
 
-    const keyboard = Markup.keyboard([
-        ['/rst', '/blk']
-    ]).resize();
+    await ctx.replyWithMarkdown(welcomeText);
+}
 
-    await ctx.replyWithMarkdown(welcomeText, keyboard);
-});
+/**
+ * Membership Verification Handler
+ */
+async function handleMembershipVerification(ctx, showStatus = false) {
+    try {
+        const statuses = await MembershipService.verifyUserMembership(ctx.from.id, ctx);
+        const allJoined = statuses.every(status => status);
 
-// Single reset command
-bot.command('rst', async (ctx) => {
-    await ctx.reply('📧 Send Instagram username or email:', 
-        Markup.forceReply().selective()
-    );
-});
+        if (allJoined) {
+            return true;
+        }
 
-// Bulk reset command  
-bot.command('blk', async (ctx) => {
-    await ctx.reply('📧 Send usernames/emails (one per line, max 5):',
-        Markup.forceReply().selective()
-    );
-});
-
-// Handle replies
-bot.on('message', async (ctx) => {
-    if (!ctx.message.reply_to_message) return;
-
-    const replyText = ctx.message.reply_to_message.text;
-    
-    if (replyText.includes('Send Instagram username or email')) {
-        // Single reset
-        const email = ctx.message.text.trim();
-        if (!email) return ctx.reply('❌ Please provide username/email');
-
-        const msg = await ctx.reply('🔄 Processing...');
+        let message = `🔒 *Access Required*\n\n`;
         
-        try {
-            const result = await instagramReset(email);
-            let response = `📧 *Account:* ${email}\n`;
-            
-            if (result.status === 'ok') {
-                response += '✅ *Status:* Reset email sent';
-            } else if (result.error) {
-                response += `❌ *Error:* ${result.error}`;
-            } else {
-                response += `❌ *Failed:* ${JSON.stringify(result)}`;
-            }
-            
-            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, null, response, { parse_mode: 'Markdown' });
-        } catch (error) {
-            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, null, `❌ Error: ${error.message}`);
-        }
-    }
-    
-    else if (replyText.includes('Send usernames/emails')) {
-        // Bulk reset
-        const accounts = ctx.message.text.split('\n').slice(0, 5).filter(a => a.trim());
-        if (accounts.length === 0) return ctx.reply('❌ No valid accounts provided');
-
-        const msg = await ctx.reply(`🔄 Processing ${accounts.length} accounts...`);
-        let results = [];
-
-        for (let i = 0; i < accounts.length; i++) {
-            const account = accounts[i].trim();
-            try {
-                const result = await instagramReset(account);
-                if (result.status === 'ok') {
-                    results.push(`✅ ${account}`);
-                } else {
-                    results.push(`❌ ${account}`);
-                }
-                
-                // Update progress
-                if ((i + 1) % 2 === 0 || i === accounts.length - 1) {
-                    await ctx.telegram.editMessageText(
-                        ctx.chat.id, 
-                        msg.message_id, 
-                        null, 
-                        `🔄 ${i + 1}/${accounts.length} processed...`
-                    );
-                }
-                
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            } catch (error) {
-                results.push(`❌ ${account} (Error)`);
-            }
+        if (showStatus) {
+            message += `*Membership Status:*\n`;
+            REQUIRED_CHANNELS.forEach((channel, index) => {
+                const icon = statuses[index] ? '✅' : '❌';
+                message += `${icon} ${channel.name}\n`;
+            });
+            message += `\nPlease join all required channels and verify again.`;
+        } else {
+            message += `To use this bot, please join our official channels.\n\n`;
+            message += `Join all channels below and click *Verify Membership*.`;
         }
 
-        const resultText = `📊 *Bulk Reset Complete*\n\n${results.join('\n')}`;
-        await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, null, resultText, { parse_mode: 'Markdown' });
+        await ctx.replyWithMarkdown(
+            message,
+            MembershipService.generateVerificationKeyboard()
+        );
+        return false;
+
+    } catch (error) {
+        console.error('Membership verification error:', error);
+        await ctx.reply('⚠️ System temporarily unavailable. Please try again shortly.');
+        return false;
     }
-});
+}
 
-// Error handling
-bot.catch((err, ctx) => {
-    console.error('Bot error:', err);
-});
+/**
+ * Command Handlers
+ */
+async function handleStartCommand(ctx) {
+    if (ctx.chat.type !== 'private') {
+        return;
+    }
 
-// Start bot
-bot.launch().then(() => {
-    console.log('🚀 Instagram Reset Bot started successfully!');
-});
+    const isMember = await handleMembershipVerification(ctx, false);
+    if (isMember) {
+        await displayWelcomeMessage(ctx);
+    }
+}
 
-// Enable graceful stop
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+async function handleVerificationCallback(ctx) {
+    try {
+        await ctx.answerCbQuery();
+        const isMember = await handleMembershipVerification(ctx, true);
+        
+        if (isMember) {
+            await ctx.editMessageText(
+                '✅ *Verification Successful!*\n\nYou can now use all bot features.',
+                { parse_mode: 'Markdown' }
+            );
+            await displayWelcomeMessage(ctx);
+        }
+    } catch (error) {
+        console.error('Verification callback error:', error);
+        await ctx.answerCbQuery('❌ Verification failed. Please try again.', { show_alert: true });
+    }
+}
+
+async function handleHelpCommand(ctx) {
+    const helpText = `
+📖 *Command Guide*
+
+*/rst username* - Reset single account
+Example: \`/rst example_user\`
+
+*/blk user1 user2* - Reset multiple accounts (max 5)
+Example: \`/blk user1 user2 user3\`
+
+*Developer:* ${DEV_HANDLE}
+    `.trim();
+
+    await ctx.replyWithMarkdown(helpText);
+}
+
+/**
+ * Reset Command Handlers
+ */
+async function handleSingleReset(ctx) {
+    try {
+        const args = ctx.message.text.split(' ').slice(1);
+        if (args.length === 0) {
+            await ctx.replyWithMarkdown(
+                '❌ *Usage:* `

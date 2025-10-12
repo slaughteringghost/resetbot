@@ -7,10 +7,10 @@ from telegram.ext import (
     filters, ContextTypes, ConversationHandler
 )
 
-# ===== Telegram Bot Token =====
-token = "8256075803:AAE6rBW0f83iQqIiVHRxRYUgUhDhoeIChZU"  # Replace with your bot token
+# ===== Bot Token =====
+token = "8256075803:AAE6rBW0f83iQqIiVHRxRYUgUhDhoeIChZU"  # Replace with your Telegram bot token
 
-# ===== Spam Protection =====
+# ===== Anti-Spam =====
 MAX_REQUESTS = 12
 TIME_WINDOW = 60
 blocked_users = set()
@@ -49,7 +49,7 @@ HEADERS = {
 # ===== Conversation State =====
 ASK_USERNAME = 1
 
-# ===== Common Recovery Request =====
+# ===== Send Recovery =====
 async def send_recovery_request(update: Update, target: str):
     await update.message.reply_text("🔄 Sending recovery request...")
     try:
@@ -65,7 +65,7 @@ async def send_recovery_request(update: Update, target: str):
 # ===== DM Inline Flow =====
 async def dm_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != "private":
-        return  # Do nothing if not DM
+        return  # Only DM
 
     user_id = update.effective_user.id
     if not check_and_block(user_id):
@@ -137,6 +137,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(token).build()
 
+    # Conversation for DM inline flow
     reset_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, dm_welcome)],
         states={
@@ -153,7 +154,7 @@ def main():
     app.add_handler(CommandHandler("rst", rst_command))
 
     print("🤖 Bot is running...")
-    app.run_polling()
+    app.run_polling()  # Polling works online
 
 if __name__ == "__main__":
     main()

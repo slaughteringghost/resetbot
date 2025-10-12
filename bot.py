@@ -55,7 +55,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/rst <email_or_username>` - Send account recovery request\n"
         "• `/start` - Show welcome message\n"
         "• `/help` - Show this help message\n\n"
-        "🔒 *Spam Protection:* Max 12 requests per minute\n"
         "If blocked, contact: @yaplol",
         parse_mode='Markdown'
     )

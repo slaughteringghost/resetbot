@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: insta-reset-bot
+    env: python
+    region: frankfurt        # या आपका पसंदीदा रीजन
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false          # Render UI में मैन्युअल सेट करें
+      - key: WEBHOOK_URL
+        value: https://insta-reset-bot.onrender.com  # अपना Render URL डालें
+    healthCheckPath: /

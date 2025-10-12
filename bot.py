@@ -4,7 +4,7 @@ from collections import defaultdict
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import requests
-TELEGRAM_BOT_TOKEN= "8342949466:AAHIY_3_pqtFfeMoP4AaWJARkgHb-5snHR8"
+token= "8342949466:AAHIY_3_pqtFfeMoP4AaWJARkgHb-5snHR8"
 # === Spam Protection (Silent) ===
 MAX_REQUESTS = 12
 TIME_WINDOW = 60

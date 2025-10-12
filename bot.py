@@ -4,7 +4,7 @@ from collections import defaultdict
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import requests
-
+TELEGRAM_BOT_TOKEN= "8342949466:AAHIY_3_pqtFfeMoP4AaWJARkgHb-5snHR8"
 # === Spam Protection (Silent) ===
 MAX_REQUESTS = 12
 TIME_WINDOW = 60
@@ -33,28 +33,46 @@ HEADERS = {
     'referer': 'https://www.instagram.com/accounts/password/reset/?source=fxcal',
     'user-agent': 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
     'x-asbd-id': '129477',
-    'x-csrftoken': 'YOUR_CSRF_TOKEN_HERE',  # ⚠️ REPLACE
+    'x-csrftoken': 'BbJnjd.Jnw20VyXU0qSsHLV',  # ⚠️ REPLACE
     'x-ig-app-id': '1217981644879628',
     'x-instagram-ajax': '1015181662',
     'x-requested-with': 'XMLHttpRequest',
-    'cookie': 'csrftoken=YOUR_CSRF_TOKEN_HERE; mid=...; ig_did=...; datr=...'  # ⚠️ REPLACE
+    'cookie': 'csrftoken="BbJnjd.Jnw20VyXU0qSsHLV"; mid="ZpZMygABAAH0176Z6fWvYiNly3y2"; ig_did="BBBA0292-07BC-49C8-ACF4-AE242AE19E97"; datr="ykyWZhA9CacxerPITDOHV5AE"'  # ⚠️ REPLACE
 }
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Use: /rst <email_or_username>")
+    await update.message.reply_text(
+        "🔰 *Instagram Account Recovery Bot*\n\n"
+        "Use: /rst <email_or_username>\n"
+        "For help use: /help\n\n"
+        "⚠️ Use responsibly!",
+        parse_mode='Markdown'
+    )
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📖 *Bot Help Guide*\n\n"
+        "• `/rst <email_or_username>` - Send account recovery request\n"
+        "• `/start` - Show welcome message\n"
+        "• `/help` - Show this help message\n\n"
+        "🔒 *Spam Protection:* Max 12 requests per minute\n"
+        "If blocked, contact: @yaplol",
+        parse_mode='Markdown'
+    )
 
 async def reset_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not check_and_block(user_id):
-        return  # Silent block
+        await update.message.reply_text("🚫 You've been blocked for spam. Contact developer: @yaplol")
+        return
 
     if not context.args:
-        await update.message.reply_text("UsageId: /rst <email_or_username>")
+        await update.message.reply_text("Usage: /rst <email_or_username>")
         return
 
     target = context.args[0].strip()
     if len(target) < 3:
-        await update.message.reply_text("Invalid input.")
+        await update.message.reply_text("❌ Invalid input.")
         return
 
     try:
@@ -69,7 +87,7 @@ async def reset_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Optional admin unblock
 async def unblock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    YOUR_USER_ID = 123456789  # 👈 Replace with your Telegram ID
+    YOUR_USER_ID = 8275649347  # 👈 Replace with your Telegram ID
     if update.effective_user.id != YOUR_USER_ID:
         return
     if context.args:
@@ -79,9 +97,9 @@ async def unblock(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_requests.pop(uid, None)
             await update.message.reply_text(f"✅ Unblocked {uid}")
         except:
-            await update.message.reply_text("UsageId: /unblock <user_id>")
+            await update.message.reply_text("Usage: /unblock <user_id>")
     else:
-        await update.message.reply_text("UsageId: /unblock <user_id>")
+        await update.message.reply_text("Usage: /unblock <user_id>")
 
 # === Main ===
 def main():
@@ -89,6 +107,7 @@ def main():
     app = Application.builder().token(token).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("rst", reset_handler))
     app.add_handler(CommandHandler("unblock", unblock))
 

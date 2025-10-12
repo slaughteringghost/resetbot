@@ -60,53 +60,56 @@ async def send_recovery_request(update: Update, target: str):
         else:
             await update.message.reply_text("⚠️ Failed to send recovery request.")
     except Exception:
-        await update.message.reply_text("💥 Error occurred. Try again later.")
+        await update.message.reply_text("💥 Error occurred. Please try again later.")
 
 # ===== DM Inline Flow =====
-async def reset_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def dm_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != "private":
-        await update.message.reply_text("⚠️ Use /rst in groups, /reset in DM.")
-        return ConversationHandler.END
+        return  # Do nothing if not DM
 
     user_id = update.effective_user.id
     if not check_and_block(user_id):
-        await update.message.reply_text("🚫 You are blocked for spam.")
-        return ConversationHandler.END
+        await update.message.reply_text("🚫 You are temporarily blocked for spam.")
+        return
 
-    keyboard = [[InlineKeyboardButton("➡️ Enter Username / Email", callback_data="enter_username")]]
+    keyboard = [[InlineKeyboardButton("➡️ Send Account Reset", callback_data="enter_username")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     await update.message.reply_text(
-        "📩 Click below to start Instagram recovery:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        "👋 **Welcome to Hazy’s Reset Bot!**\n"
+        "Please click the button below to send a reset request for your account. 💁🏻",
+        parse_mode="Markdown",
+        reply_markup=reply_markup
     )
     return ASK_USERNAME
 
 async def ask_username_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.message.reply_text("📝 Please send your *Instagram username or email*:", parse_mode="Markdown")
+    await query.message.reply_text("📝 Please send your Instagram username or email address:")
     return ASK_USERNAME
 
 async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target = update.message.text.strip()
     if len(target) < 3:
-        await update.message.reply_text("❌ Invalid input. Try again.")
+        await update.message.reply_text("❌ Invalid input. Please try again.")
         return ASK_USERNAME
     await send_recovery_request(update, target)
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ Cancelled.")
+    await update.message.reply_text("❌ Operation cancelled.")
     return ConversationHandler.END
 
 # ===== Group Flow =====
 async def rst_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type == "private":
-        await update.message.reply_text("ℹ️ Use /reset in DM for inline flow.")
+        await update.message.reply_text("ℹ️ Use the DM to send account reset.")
         return
 
     user_id = update.effective_user.id
     if not check_and_block(user_id):
-        await update.message.reply_text("🚫 You are blocked for spam.")
+        await update.message.reply_text("🚫 You are temporarily blocked for spam.")
         return
 
     if not context.args:
@@ -122,19 +125,20 @@ async def rst_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===== Start Command =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🔰 Instagram Recovery Bot\n\n"
-        "📩 /reset in DMs → inline flow\n"
-        "📩 /rst <username/email> in groups → direct recovery\n"
-        "⚠️ Don’t spam requests."
-    )
+    if update.effective_chat.type == "private":
+        await dm_welcome(update, context)
+    else:
+        await update.message.reply_text(
+            "🔰 Welcome to Hazy’s Reset Bot!\n\n"
+            "📩 Use `/rst <username/email>` in this group to send a reset request."
+        )
 
 # ===== Main =====
 def main():
     app = Application.builder().token(token).build()
 
     reset_conv = ConversationHandler(
-        entry_points=[CommandHandler("reset", reset_start)],
+        entry_points=[MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, dm_welcome)],
         states={
             ASK_USERNAME: [
                 CallbackQueryHandler(ask_username_callback, pattern="enter_username"),

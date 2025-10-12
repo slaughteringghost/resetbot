@@ -62,33 +62,40 @@ async def send_recovery_request(update: Update, target: str):
     except Exception:
         await update.message.reply_text("💥 Error occurred. Please try again later.")
 
-# ===== DM Inline Flow =====
-async def dm_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type != "private":
-        return  # Only DM
-
+# ===== Start Command for DM =====
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if not check_and_block(user_id):
-        await update.message.reply_text("🚫 You are temporarily blocked for spam.")
-        return
+    
+    if update.effective_chat.type == "private":
+        if not check_and_block(user_id):
+            await update.message.reply_text("🚫 You are temporarily blocked for spam.")
+            return ConversationHandler.END
 
-    keyboard = [[InlineKeyboardButton("➡️ Send Account Reset", callback_data="enter_username")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+        keyboard = [[InlineKeyboardButton("➡️ Send Account Reset", callback_data="enter_username")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        "👋 **Welcome to Hazy’s Reset Bot!**\n"
-        "Please click the button below to send a reset request for your account. 💁🏻",
-        parse_mode="Markdown",
-        reply_markup=reply_markup
-    )
-    return ASK_USERNAME
+        await update.message.reply_text(
+            "👋 **Welcome to Hazy's Reset Bot!**\n"
+            "Please click the button below to send a reset request for your account. 💁🏻",
+            parse_mode="Markdown",
+            reply_markup=reply_markup
+        )
+        return ASK_USERNAME
+    else:
+        await update.message.reply_text(
+            "🔰 Welcome to Hazy's Reset Bot!\n\n"
+            "📩 Use `/rst <username/email>` in this group to send a reset request."
+        )
+        return ConversationHandler.END
 
+# ===== Button Callback =====
 async def ask_username_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.message.reply_text("📝 Please send your Instagram username or email address:")
     return ASK_USERNAME
 
+# ===== Receive Username =====
 async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target = update.message.text.strip()
     if len(target) < 3:
@@ -97,6 +104,7 @@ async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_recovery_request(update, target)
     return ConversationHandler.END
 
+# ===== Cancel =====
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Operation cancelled.")
     return ConversationHandler.END
@@ -104,7 +112,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===== Group Flow =====
 async def rst_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type == "private":
-        await update.message.reply_text("ℹ️ Use the DM to send account reset.")
+        await update.message.reply_text("ℹ️ Use /start in DM to send account reset.")
         return
 
     user_id = update.effective_user.id
@@ -123,38 +131,27 @@ async def rst_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await send_recovery_request(update, target)
 
-# ===== Start Command =====
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type == "private":
-        await dm_welcome(update, context)
-    else:
-        await update.message.reply_text(
-            "🔰 Welcome to Hazy’s Reset Bot!\n\n"
-            "📩 Use `/rst <username/email>` in this group to send a reset request."
-        )
-
 # ===== Main =====
 def main():
     app = Application.builder().token(token).build()
 
-    # Conversation for DM inline flow
+    # Conversation handler for DM flow
     reset_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, dm_welcome)],
+        entry_points=[CommandHandler("start", start)],
         states={
             ASK_USERNAME: [
                 CallbackQueryHandler(ask_username_callback, pattern="enter_username"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_username),
+                MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, receive_username),
             ]
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    app.add_handler(CommandHandler("start", start))
     app.add_handler(reset_conv)
     app.add_handler(CommandHandler("rst", rst_command))
 
     print("🤖 Bot is running...")
-    app.run_polling()  # Polling works online
+    app.run_polling()
 
 if __name__ == "__main__":
     main()

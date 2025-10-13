@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQuer
 import requests
 
 # ================== CONFIG ==================
-BOT_TOKEN = os.environ.get('BOT_TOKEN', '8256075803:AAE6rBW0f83iQqIiVHRxRYUgUhDhoeIChZU')
+BOT_TOKEN = "8427715651:AAGmFcu08l3cr2WJFZRdrp466O22yrCnJlQ"
 MAIN_CHANNEL_ID = -1002628211220
 BACKUP_CHANNEL_USERNAME = "pytimebruh"
 

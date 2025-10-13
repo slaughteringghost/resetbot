@@ -4,17 +4,13 @@ import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 import requests
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
 
 # ================== CONFIG ==================
-BOT_TOKEN = os.environ['BOT_TOKEN']  # Railway will set this
-MAIN_CHANNEL_ID = int(os.environ.get('MAIN_CHANNEL_ID', '-1002628211220'))
-BACKUP_CHANNEL_USERNAME = os.environ.get('BACKUP_CHANNEL_USERNAME', 'pytimebruh')
+BOT_TOKEN = "8256075803:AAE6rBW0f83iQqIiVHRxRYUgUhDhoeIChZU"  # Your bot token
+MAIN_CHANNEL_ID = -1002628211220
+BACKUP_CHANNEL_USERNAME = "pytimebruh"
 
-# Instagram API configuration (you'll need to update these dynamically)
+# Instagram API configuration
 INSTA_URL = "https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/"
 HEADERS = {
     "authority": "www.instagram.com",
@@ -77,9 +73,6 @@ async def check_membership(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> 
 
 def send_insta_reset(email: str) -> str:
     """Send Instagram password reset request"""
-    # TODO: You'll need to implement dynamic session/cookie management
-    # The current static cookies will expire quickly
-    
     data = {"email_or_username": email.strip(), "flow": "fxcal"}
     try:
         response = requests.post(INSTA_URL, headers=HEADERS, data=data, timeout=10)

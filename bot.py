@@ -1,47 +1,92 @@
 import os
 import logging
+import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # ================== CONFIG ==================
-BOT_TOKEN = "8427715651:AAGmFcu08l3cr2WJFZRdrp466O22yrCnJlQ"
-MAIN_CHANNEL_ID = -1002628211220
-BACKUP_CHANNEL_USERNAME = "pytimebruh"
+BOT_TOKEN = os.environ['BOT_TOKEN']  # Railway will set this
+MAIN_CHANNEL_ID = int(os.environ.get('MAIN_CHANNEL_ID', '-1002628211220'))
+BACKUP_CHANNEL_USERNAME = os.environ.get('BACKUP_CHANNEL_USERNAME', 'pytimebruh')
 
+# Instagram API configuration (you'll need to update these dynamically)
 INSTA_URL = "https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/"
 HEADERS = {
     "authority": "www.instagram.com",
     "accept": "*/*",
     "content-type": "application/x-www-form-urlencoded",
-    "cookie": "csrftoken=BbJnjd.Jnw20VyXU0qSsHLV; mid=ZpZMygABAAH0176Z6fWvYiNly3y2; ig_did=BBBA0292-07BC-49C8-ACF4-AE242AE19E97; datr=ykyWZhA9CacxerPITDOHV5AE; ig_nrcb=1; dpr=2.75; wd=393x466",
     "origin": "https://www.instagram.com",
     "referer": "https://www.instagram.com/accounts/password/reset/?source=fxcal",
     "user-agent": "Mozilla/5.0 (Linux; Android 10; M2101K786) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
-    "x-csrftoken": "BbJnjd.Jnw20VyXU0qSsHLV",
     "x-ig-app-id": "1217981644879628",
 }
 
-# Store user states
+# Store user states with timestamps
 user_states = {}
+STATE_TIMEOUT = 300  # 5 minutes
+
+# Rate limiting
+user_requests = {}
 
 # ================== UTILS ==================
+def cleanup_states():
+    """Clean up expired user states"""
+    current_time = time.time()
+    expired_users = [user_id for user_id, state_data in user_states.items() 
+                    if current_time - state_data['timestamp'] > STATE_TIMEOUT]
+    for user_id in expired_users:
+        del user_states[user_id]
+
+def is_rate_limited(user_id: int, limit: int = 5, window: int = 3600) -> bool:
+    """Check if user is rate limited"""
+    now = time.time()
+    
+    # Clean old requests
+    if user_id in user_requests:
+        user_requests[user_id] = [req_time for req_time in user_requests[user_id] 
+                                 if now - req_time < window]
+    
+    # Check limit
+    if user_id in user_requests and len(user_requests[user_id]) >= limit:
+        return True
+    
+    # Add current request
+    if user_id not in user_requests:
+        user_requests[user_id] = []
+    user_requests[user_id].append(now)
+    return False
+
 async def is_dm(update: Update) -> bool:
     return update.effective_chat.type == "private"
 
 async def check_membership(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Check if user is member of required channels"""
     try:
         member_main = await context.bot.get_chat_member(MAIN_CHANNEL_ID, user_id)
         member_backup = await context.bot.get_chat_member(f"@{BACKUP_CHANNEL_USERNAME}", user_id)
         return (member_main.status in ["member", "administrator", "creator"] and 
                 member_backup.status in ["member", "administrator", "creator"])
-    except Exception:
+    except Exception as e:
+        logging.error(f"Membership check failed for user {user_id}: {e}")
         return False
 
 def send_insta_reset(email: str) -> str:
+    """Send Instagram password reset request"""
+    # TODO: You'll need to implement dynamic session/cookie management
+    # The current static cookies will expire quickly
+    
     data = {"email_or_username": email.strip(), "flow": "fxcal"}
     try:
         response = requests.post(INSTA_URL, headers=HEADERS, data=data, timeout=10)
+        
+        if response.status_code != 200:
+            return f"Instagram API error: HTTP {response.status_code}"
+            
         result = response.json()
         if result.get("status") == "ok":
             return "Password reset email sent successfully ✅"
@@ -49,8 +94,12 @@ def send_insta_reset(email: str) -> str:
             errors = ", ".join([msg for sublist in result["errors"].values() for msg in sublist])
             return f"Error: {errors}"
         return "Unexpected response from Instagram"
-    except Exception as e:
+    except requests.exceptions.Timeout:
+        return "Request timeout - Instagram may be busy"
+    except requests.exceptions.RequestException as e:
         return f"Connection error: {str(e)}"
+    except ValueError:
+        return "Invalid response from Instagram API"
 
 # ================== COMMANDS ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,13 +152,19 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     user_id = update.effective_user.id
+    
+    # Rate limiting check
+    if is_rate_limited(user_id):
+        await update.message.reply_text("⏳ Please wait before making another request.")
+        return
+    
     if not await check_membership(user_id, context):
         await start(update, context)
         return
         
     if not context.args:
         # Start the reset flow
-        user_states[user_id] = "awaiting_reset_input"
+        user_states[user_id] = {'state': 'awaiting_reset_input', 'timestamp': time.time()}
         await update.message.reply_text(
             "📧 **Enter Instagram username or email:**\n\n",
             parse_mode="Markdown"
@@ -127,11 +182,17 @@ async def start_reset_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     
     user_id = query.from_user.id
+    
+    # Rate limiting check
+    if is_rate_limited(user_id):
+        await query.edit_message_text("⏳ Please wait before making another request.")
+        return
+    
     if not await check_membership(user_id, context):
         await query.edit_message_text("Please verify your membership first using /start")
         return
     
-    user_states[user_id] = "awaiting_reset_input"
+    user_states[user_id] = {'state': 'awaiting_reset_input', 'timestamp': time.time()}
     await query.edit_message_text(
         "📧 **Enter Instagram username or email:**\n\n",
         parse_mode="Markdown"
@@ -145,8 +206,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_message = update.message.text.strip()
     
+    # Clean up old states
+    cleanup_states()
+    
     # Check if user is in reset flow
-    if user_states.get(user_id) == "awaiting_reset_input":
+    if user_id in user_states and user_states[user_id]['state'] == 'awaiting_reset_input':
+        # Rate limiting check
+        if is_rate_limited(user_id):
+            await update.message.reply_text("⏳ Please wait before making another request.")
+            return
+            
         # Process the reset request
         del user_states[user_id]  # Clear state
         
@@ -213,15 +282,13 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================== MAIN ==================
 def main():
+    # Configure logging for Railway
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    if not BOT_TOKEN:
-        logging.error("BOT_TOKEN not found in environment variables!")
-        return
-    
+    # Create application
     app = Application.builder().token(BOT_TOKEN).build()
 
     # Add handlers
@@ -233,7 +300,9 @@ def main():
     app.add_handler(CallbackQueryHandler(help_callback, pattern="^help$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logging.info("Bot starting...")
+    logging.info("Bot starting on Railway...")
+    
+    # Start the bot
     app.run_polling()
 
 if __name__ == "__main__":

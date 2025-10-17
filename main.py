@@ -5,7 +5,7 @@ import random
 import requests
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
 
 # Bot configuration
 BOT_TOKEN = "8256075803:AAEBqIpIC514IcY-9HptJyAJA4XIdP8CDog"
@@ -21,7 +21,7 @@ class InstagramResetBot:
     def __init__(self):
         self.user_states = {}
 
-    async def send_password_reset(self, target: str) -> dict:
+    def send_password_reset(self, target: str) -> dict:
         """Send password reset request to Instagram"""
         try:
             if '@' in target:
@@ -79,7 +79,7 @@ class InstagramResetBot:
         ]
         return InlineKeyboardMarkup(keyboard)
 
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    def start_command(self, update: Update, context: CallbackContext) -> None:
         """Send welcome message"""
         welcome_text = """🔓 Reset your Instagram account password.
         
@@ -87,64 +87,64 @@ class InstagramResetBot:
         
         keyboard = self.create_start_keyboard()
         
-        await update.message.reply_text(
+        update.message.reply_text(
             welcome_text, 
             reply_markup=keyboard,
             parse_mode='Markdown'
         )
 
-    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    def button_callback(self, update: Update, context: CallbackContext) -> None:
         """Handle button callbacks"""
         query = update.callback_query
-        await query.answer()
+        query.answer()
         
         user_id = query.from_user.id
         
         if query.data == "start_reset" or query.data == "reset_again":
-            await self.show_reset_input(update, context)
+            self.show_reset_input(update, context)
 
-    async def show_reset_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    def show_reset_input(self, update: Update, context: CallbackContext):
         """Show reset input instructions"""
         user_id = update.callback_query.from_user.id
         self.user_states[user_id] = "waiting_target"
         
         text = """Send username, email, or phone number:"""
         
-        await update.callback_query.edit_message_text(text)
+        update.callback_query.edit_message_text(text)
 
-    async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    def handle_text_message(self, update: Update, context: CallbackContext) -> None:
         """Handle text messages"""
         user_id = update.effective_user.id
         state = self.user_states.get(user_id)
         
         if state == "waiting_target":
-            await self.process_reset(update, context)
+            self.process_reset(update, context)
         else:
             keyboard = self.create_start_keyboard()
-            await update.message.reply_text(
+            update.message.reply_text(
                 "Use the button below:",
                 reply_markup=keyboard
             )
 
-    async def process_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    def process_reset(self, update: Update, context: CallbackContext):
         """Process account reset"""
         user_id = update.effective_user.id
         target = update.message.text.strip()
         
         self.user_states[user_id] = None
         
-        processing_msg = await update.message.reply_text(f"🔄 Processing `{target}`...", parse_mode='Markdown')
+        processing_msg = update.message.reply_text(f"🔄 Processing `{target}`...", parse_mode='Markdown')
         
-        result = await self.send_password_reset(target)
+        result = self.send_password_reset(target)
         keyboard = self.create_reset_again_keyboard()
         
-        await processing_msg.edit_text(
+        processing_msg.edit_text(
             result['message'],
             parse_mode='Markdown',
             reply_markup=keyboard
         )
 
-    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    def error_handler(self, update: Update, context: CallbackContext) -> None:
         """Log errors"""
         logger.error(f"Exception: {context.error}")
 
@@ -153,29 +153,36 @@ def main() -> None:
     print("🤖 Starting Instagram Reset Bot...")
     
     bot = InstagramResetBot()
-    application = Application.builder().token(BOT_TOKEN).build()
     
-    application.add_handler(CommandHandler("start", bot.start_command))
-    application.add_handler(CallbackQueryHandler(bot.button_callback))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text_message))
-    application.add_error_handler(bot.error_handler)
+    # Create updater
+    updater = Updater(BOT_TOKEN)
+    dispatcher = updater.dispatcher
     
-    # Use webhook for Render deployment
+    # Add handlers
+    dispatcher.add_handler(CommandHandler("start", bot.start_command))
+    dispatcher.add_handler(CallbackQueryHandler(bot.button_callback))
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, bot.handle_text_message))
+    dispatcher.add_error_handler(bot.error_handler)
+    
+    # Get port for webhook
     PORT = int(os.environ.get('PORT', 8443))
     
     if os.environ.get('RENDER'):
         # Webhook mode for Render
         WEBHOOK_URL = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}"
         print(f"🌐 Starting webhook on {WEBHOOK_URL}:{PORT}")
-        application.run_webhook(
+        updater.start_webhook(
             listen="0.0.0.0",
             port=PORT,
-            webhook_url=WEBHOOK_URL
+            url_path=BOT_TOKEN,
+            webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}"
         )
+        updater.idle()
     else:
         # Polling mode for local development
         print("🚀 Bot running with polling...")
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
+        updater.start_polling()
+        updater.idle()
 
 if __name__ == "__main__":
     main()

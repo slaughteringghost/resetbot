@@ -1,302 +1,167 @@
 import os
-import logging
-import time
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
+import uuid
+import string
+import random
 import requests
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
-# ================== CONFIG ==================
-BOT_TOKEN = "8256075803:AAE6rBW0f83iQqIiVHRxRYUgUhDhoeIChZU"  # Your bot token
-MAIN_CHANNEL_ID = -1002628211220
-BACKUP_CHANNEL_USERNAME = "pytimebruh"
+# Bot configuration
+BOT_TOKEN = "8256075803:AAEBqIpIC514IcY-9HptJyAJA4XIdP8CDog"
 
-# Instagram API configuration
-INSTA_URL = "https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/"
-HEADERS = {
-    "authority": "www.instagram.com",
-    "accept": "*/*",
-    "content-type": "application/x-www-form-urlencoded",
-    "origin": "https://www.instagram.com",
-    "referer": "https://www.instagram.com/accounts/password/reset/?source=fxcal",
-    "user-agent": "Mozilla/5.0 (Linux; Android 10; M2101K786) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
-    "x-ig-app-id": "1217981644879628",
-}
+# Enable logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-# Store user states with timestamps
-user_states = {}
-STATE_TIMEOUT = 300  # 5 minutes
+class InstagramResetBot:
+    def __init__(self):
+        self.user_states = {}
 
-# Rate limiting
-user_requests = {}
-
-# ================== UTILS ==================
-def cleanup_states():
-    """Clean up expired user states"""
-    current_time = time.time()
-    expired_users = [user_id for user_id, state_data in user_states.items() 
-                    if current_time - state_data['timestamp'] > STATE_TIMEOUT]
-    for user_id in expired_users:
-        del user_states[user_id]
-
-def is_rate_limited(user_id: int, limit: int = 5, window: int = 3600) -> bool:
-    """Check if user is rate limited"""
-    now = time.time()
-    
-    # Clean old requests
-    if user_id in user_requests:
-        user_requests[user_id] = [req_time for req_time in user_requests[user_id] 
-                                 if now - req_time < window]
-    
-    # Check limit
-    if user_id in user_requests and len(user_requests[user_id]) >= limit:
-        return True
-    
-    # Add current request
-    if user_id not in user_requests:
-        user_requests[user_id] = []
-    user_requests[user_id].append(now)
-    return False
-
-async def is_dm(update: Update) -> bool:
-    return update.effective_chat.type == "private"
-
-async def check_membership(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Check if user is member of required channels"""
-    try:
-        member_main = await context.bot.get_chat_member(MAIN_CHANNEL_ID, user_id)
-        member_backup = await context.bot.get_chat_member(f"@{BACKUP_CHANNEL_USERNAME}", user_id)
-        return (member_main.status in ["member", "administrator", "creator"] and 
-                member_backup.status in ["member", "administrator", "creator"])
-    except Exception as e:
-        logging.error(f"Membership check failed for user {user_id}: {e}")
-        return False
-
-def send_insta_reset(email: str) -> str:
-    """Send Instagram password reset request"""
-    data = {"email_or_username": email.strip(), "flow": "fxcal"}
-    try:
-        response = requests.post(INSTA_URL, headers=HEADERS, data=data, timeout=10)
-        
-        if response.status_code != 200:
-            return f"Instagram API error: HTTP {response.status_code}"
+    async def send_password_reset(self, target: str) -> dict:
+        """Send password reset request to Instagram"""
+        try:
+            if '@' in target:
+                data = {
+                    '_csrftoken': ''.join(random.choices(string.ascii_letters + string.digits, k=32)),
+                    'user_email': target,
+                    'guid': str(uuid.uuid4()),
+                    'device_id': str(uuid.uuid4())
+                }
+            else: 
+                data = {
+                    '_csrftoken': ''.join(random.choices(string.ascii_letters + string.digits, k=32)),
+                    'username': target,
+                    'guid': str(uuid.uuid4()),
+                    'device_id': str(uuid.uuid4())
+                }
             
-        result = response.json()
-        if result.get("status") == "ok":
-            return "Password reset email sent successfully ✅"
-        elif "errors" in result:
-            errors = ", ".join([msg for sublist in result["errors"].values() for msg in sublist])
-            return f"Error: {errors}"
-        return "Unexpected response from Instagram"
-    except requests.exceptions.Timeout:
-        return "Request timeout - Instagram may be busy"
-    except requests.exceptions.RequestException as e:
-        return f"Connection error: {str(e)}"
-    except ValueError:
-        return "Invalid response from Instagram API"
-
-# ================== COMMANDS ==================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_dm(update):
-        await update.message.reply_text("This bot only works in private messages.")
-        return
-    
-    user_id = update.effective_user.id
-    
-    if not await check_membership(user_id, context):
-        keyboard = [
-            [InlineKeyboardButton("Main Channel", url="https://t.me/+YEObPfKXsK1hNjU9")],
-            [InlineKeyboardButton("Backup Channel", url="https://t.me/pytimebruh")],
-            [InlineKeyboardButton("Verify Membership", callback_data="verify_join")]
-        ]
-        await update.message.reply_text(
-            "📋 Channel Membership Required\n\n"
-            "To access Instagram Reset services, please join both channels below and verify your membership:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-    
-    keyboard = [
-        [InlineKeyboardButton("📧 Start Reset", callback_data="start_reset")],
-        [InlineKeyboardButton("ℹ️ Help", callback_data="help")]
-    ]
-    await update.message.reply_text(
-        "✉️ Instagram Account Reset\n\n"
-        "Professional account recovery services for Instagram.\n\n",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_dm(update):
-        return
-    
-    keyboard = [[InlineKeyboardButton("📧 Start Reset", callback_data="start_reset")]]
-    await update.message.reply_text(
-        "🛠️ Service Instructions\n\n"
-        "To reset an Instagram account:\n"
-        "• Click 'Start Reset' button\n"
-        "• Enter email or username when prompted\n"
-        "• Wait for processing\n\n"
-        "You can also use: /reset email@example.com",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_dm(update):
-        return
-    
-    user_id = update.effective_user.id
-    
-    # Rate limiting check
-    if is_rate_limited(user_id):
-        await update.message.reply_text("⏳ Please wait before making another request.")
-        return
-    
-    if not await check_membership(user_id, context):
-        await start(update, context)
-        return
-        
-    if not context.args:
-        # Start the reset flow
-        user_states[user_id] = {'state': 'awaiting_reset_input', 'timestamp': time.time()}
-        await update.message.reply_text(
-            "📧 **Enter Instagram username or email:**\n\n",
-            parse_mode="Markdown"
-        )
-        return
-        
-    # Direct reset with argument
-    target = " ".join(context.args)
-    msg = await update.message.reply_text("🔄 Processing your reset request...")
-    result = send_insta_reset(target)
-    await msg.edit_text(f"**Status:** {result}", parse_mode="Markdown")
-
-async def start_reset_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    
-    # Rate limiting check
-    if is_rate_limited(user_id):
-        await query.edit_message_text("⏳ Please wait before making another request.")
-        return
-    
-    if not await check_membership(user_id, context):
-        await query.edit_message_text("Please verify your membership first using /start")
-        return
-    
-    user_states[user_id] = {'state': 'awaiting_reset_input', 'timestamp': time.time()}
-    await query.edit_message_text(
-        "📧 **Enter Instagram username or email:**\n\n",
-        parse_mode="Markdown"
-    )
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle user messages for reset flow"""
-    if not await is_dm(update):
-        return
-    
-    user_id = update.effective_user.id
-    user_message = update.message.text.strip()
-    
-    # Clean up old states
-    cleanup_states()
-    
-    # Check if user is in reset flow
-    if user_id in user_states and user_states[user_id]['state'] == 'awaiting_reset_input':
-        # Rate limiting check
-        if is_rate_limited(user_id):
-            await update.message.reply_text("⏳ Please wait before making another request.")
-            return
+            user_agent_parts = [
+                ''.join(random.choices(string.ascii_lowercase + string.digits, k=16)),
+                ''.join(random.choices(string.ascii_lowercase + string.digits, k=16)),
+                ''.join(random.choices(string.ascii_lowercase + string.digits, k=16)),
+                ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
+            ]
             
-        # Process the reset request
-        del user_states[user_id]  # Clear state
-        
-        msg = await update.message.reply_text("🔄 Processing your reset request...")
-        result = send_insta_reset(user_message)
-        
-        keyboard = [[InlineKeyboardButton("🔄 Reset Another", callback_data="start_reset")]]
-        await msg.edit_text(
-            f"**Account:** `{user_message}`\n**Status:** {result}\n\n"
-            "You can reset another account using the button below:",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
+            headers = {
+                'user-agent': f"Instagram 150.0.0.0.000 Android (29/10; 300dpi; 720x1440; {user_agent_parts[0]}/{user_agent_parts[1]}; {user_agent_parts[2]}; {user_agent_parts[3]}; en_GB;)"
+            }
+            
+            response = requests.post(
+                'https://i.instagram.com/api/v1/accounts/send_password_reset/',
+                headers=headers,
+                data=data,
+                timeout=30
+            )
+            
+            if 'obfuscated_email' in response.text or 'obfuscated_phone' in response.text:
+                return {"success": True, "message": f"✅ Reset sent to `{target}`"}
+            else:
+                return {"success": False, "message": f"❌ Failed: `{target}`"}
+                
+        except Exception as e:
+            return {"success": False, "message": f"❌ Error: `{target}`"}
 
-async def verify_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    if await check_membership(user_id, context):
+    def create_start_keyboard(self) -> InlineKeyboardMarkup:
+        """Create initial start keyboard"""
         keyboard = [
-            [InlineKeyboardButton("📧 Start Reset", callback_data="start_reset")],
-            [InlineKeyboardButton("ℹ️ Help", callback_data="help")]
+            [InlineKeyboardButton("🔓 Reset", callback_data="start_reset")]
         ]
-        await query.edit_message_text(
-            "✅ **Access Granted**\n\n"
-            "You now have access to Instagram Reset services.\n\n",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    else:
+        return InlineKeyboardMarkup(keyboard)
+
+    def create_reset_again_keyboard(self) -> InlineKeyboardMarkup:
+        """Create reset again keyboard after completion"""
         keyboard = [
-            [InlineKeyboardButton("Main Channel", url="https://t.me/+YEObPfKXsK1hNjU9")],
-            [InlineKeyboardButton("Backup Channel", url="https://t.me/pytimebruh")],
-            [InlineKeyboardButton("Check Again", callback_data="verify_join")]
+            [InlineKeyboardButton("🔄 Reset Another Account", callback_data="reset_again")]
         ]
-        await query.edit_message_text(
-            "❌ **Membership Not Verified**\n\n"
-            "Please ensure you've joined both channels and try again:",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+        return InlineKeyboardMarkup(keyboard)
+
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Send welcome message"""
+        welcome_text = """🔓 Reset your Instagram account password.
+        
+        by @yaplol"""
+        
+        keyboard = self.create_start_keyboard()
+        
+        await update.message.reply_text(
+            welcome_text, 
+            reply_markup=keyboard,
+            parse_mode='Markdown'
         )
 
-async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    keyboard = [[InlineKeyboardButton("📧 Reset", callback_data="start_reset")]]
-    await query.edit_message_text(
-        "🛠️ **Service Instructions**\n\n"
-        "**How to reset an Instagram account:**\n"
-        "1. Click 'Start Reset' button\n"
-        "2. Enter the username or email address\n"
-        "3. Wait for processing\n\n"
-        "**Direct command:**\n"
-        "`/reset username@example.com`\n\n"
-        "**Requirements:**\n"
-        "• Must be member of both channels\n"
-        "• Valid Instagram username/email",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle button callbacks"""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = query.from_user.id
+        
+        if query.data == "start_reset" or query.data == "reset_again":
+            await self.show_reset_input(update, context)
 
-# ================== MAIN ==================
-def main():
-    # Configure logging for Railway
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    # Create application
-    app = Application.builder().token(BOT_TOKEN).build()
+    async def show_reset_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show reset input instructions"""
+        user_id = update.callback_query.from_user.id
+        self.user_states[user_id] = "waiting_target"
+        
+        text = """Send username, email, or phone number:"""
+        
+        await update.callback_query.edit_message_text(text)
 
-    # Add handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("reset", reset_command))
-    app.add_handler(CallbackQueryHandler(start_reset_callback, pattern="^start_reset$"))
-    app.add_handler(CallbackQueryHandler(verify_join_callback, pattern="^verify_join$"))
-    app.add_handler(CallbackQueryHandler(help_callback, pattern="^help$"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle text messages"""
+        user_id = update.effective_user.id
+        state = self.user_states.get(user_id)
+        
+        if state == "waiting_target":
+            await self.process_reset(update, context)
+        else:
+            keyboard = self.create_start_keyboard()
+            await update.message.reply_text(
+                "Use the button below:",
+                reply_markup=keyboard
+            )
 
-    logging.info("Bot starting on Railway...")
+    async def process_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Process account reset"""
+        user_id = update.effective_user.id
+        target = update.message.text.strip()
+        
+        self.user_states[user_id] = None
+        
+        processing_msg = await update.message.reply_text(f"🔄 Processing `{target}`...", parse_mode='Markdown')
+        
+        result = await self.send_password_reset(target)
+        keyboard = self.create_reset_again_keyboard()
+        
+        await processing_msg.edit_text(
+            result['message'],
+            parse_mode='Markdown',
+            reply_markup=keyboard
+        )
+
+    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Log errors"""
+        logger.error(f"Exception: {context.error}")
+
+def main() -> None:
+    """Start the bot"""
+    print("🤖 Starting Instagram Reset Bot...")
     
-    # Start the bot
-    app.run_polling()
+    bot = InstagramResetBot()
+    application = Application.builder().token(BOT_TOKEN).build()
+    
+    application.add_handler(CommandHandler("start", bot.start_command))
+    application.add_handler(CallbackQueryHandler(bot.button_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text_message))
+    application.add_error_handler(bot.error_handler)
+    
+    print("🚀 Bot running...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()

@@ -160,8 +160,22 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text_message))
     application.add_error_handler(bot.error_handler)
     
-    print("🚀 Bot running...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Use webhook for Render deployment
+    PORT = int(os.environ.get('PORT', 8443))
+    
+    if os.environ.get('RENDER'):
+        # Webhook mode for Render
+        WEBHOOK_URL = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}"
+        print(f"🌐 Starting webhook on {WEBHOOK_URL}:{PORT}")
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=WEBHOOK_URL
+        )
+    else:
+        # Polling mode for local development
+        print("🚀 Bot running with polling...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()

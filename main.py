@@ -1,3 +1,4 @@
+
 import os
 import uuid
 import string
@@ -14,17 +15,18 @@ from telegram.ext import (
     filters
 )
 
-# Bot configuration - Use environment variable for token
+# Bot configuration - Hardcoded values
 BOT_TOKEN = "8527703252:AAGfjfFTIZNj6ftncKn5EOm2Ky1b-zYTz5Q"
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN environment variable is not set!")
+WEBHOOK_URL = "https://resetbot-jhso.onrender.com" # Provided webhook URL
 
-# Use the Render-provided hostname for the webhook URL
-RENDER_EXTERNAL_HOSTNAME = 'https://resetbot-jhso.onrender.com'
-if not RENDER_EXTERNAL_HOSTNAME:
-    raise ValueError("RENDER_EXTERNAL_HOSTNAME environment variable is not set!")
-
-WEBHOOK_URL = f"https://{RENDER_EXTERNAL_HOSTNAME}"
+# Predefined list of fake user agents
+FAKE_USER_AGENTS = [
+    "Instagram 150.0.0.0.000 Android (29/10; 300dpi; 720x1440; {0}/{1}; {2}; {3}; en_GB;)",
+    "Instagram 151.0.0.0.000 Android (28/9; 420dpi; 1080x1920; {0}/{1}; {2}; {3}; en_US;)",
+    "Instagram 149.0.0.0.000 Android (30/11; 280dpi; 720x1280; {0}/{1}; {2}; {3}; es_ES;)",
+    "Instagram 152.1.0.29.119 Android (29/10; 320dpi; 1080x2340; {0}/{1}; {2}; {3}; pt_BR;)",
+    "Instagram 148.0.0.0.000 Android (27/8; 300dpi; 720x1400; {0}/{1}; {2}; {3}; fr_FR;)",
+]
 
 # Enable logging
 logging.basicConfig(
@@ -55,15 +57,18 @@ class InstagramResetBot:
                     'device_id': str(uuid.uuid4())
                 }
             
+            # Select a random user agent template and fill placeholders
+            user_agent_template = random.choice(FAKE_USER_AGENTS)
             user_agent_parts = [
                 ''.join(random.choices(string.ascii_lowercase + string.digits, k=16)),
                 ''.join(random.choices(string.ascii_lowercase + string.digits, k=16)),
                 ''.join(random.choices(string.ascii_lowercase + string.digits, k=16)),
                 ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
             ]
+            user_agent = user_agent_template.format(*user_agent_parts)
             
             headers = {
-                'user-agent': f"Instagram 150.0.0.0.000 Android (29/10; 300dpi; 720x1440; {user_agent_parts[0]}/{user_agent_parts[1]}; {user_agent_parts[2]}; {user_agent_parts[3]}; en_GB;)"
+                'user-agent': user_agent
             }
             
             response = requests.post(
@@ -73,13 +78,21 @@ class InstagramResetBot:
                 timeout=30
             )
             
+            # Log response details for debugging (optional, can be removed later)
+            logger.info(f"Instagram API response for {target}: {response.status_code}, {response.text[:100]}...")
+
             if 'obfuscated_email' in response.text or 'obfuscated_phone' in response.text:
                 return {"success": True, "message": f"✅ Reset sent to `{target}`"}
             else:
+                # Log if the response indicates failure or unexpected content
+                logger.warning(f"Instagram API did not return expected success markers for {target}. Response: {response.text}")
                 return {"success": False, "message": f"❌ Failed: `{target}`"}
                 
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request error during password reset for {target}: {e}")
+            return {"success": False, "message": f"❌ Network Error: `{target}`"}
         except Exception as e:
-            logger.error(f"Error during password reset request for {target}: {e}")
+            logger.error(f"General error during password reset for {target}: {e}")
             return {"success": False, "message": f"❌ Error: `{target}`"}
 
     def create_start_keyboard(self) -> InlineKeyboardMarkup:
@@ -180,18 +193,20 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text_message))
     application.add_error_handler(bot.error_handler)
 
-    # Get port for webhook (Render sets this)
-    PORT = int(os.environ.get('PORT', 8443))
+    # Get port for webhook (Render sets this, default is 10000)
+    PORT = int(os.environ.get('PORT', 10000)) # Use Render's default port 10000
     
     # Check if running on Render
     if os.environ.get('RENDER'):
-        print(f"🌐 Setting webhook to: {WEBHOOK_URL}/{BOT_TOKEN}")
+        # Hardcoded webhook URL + token
+        webhook_full_url = f"{WEBHOOK_URL}/{BOT_TOKEN}"
+        print(f"🌐 Setting webhook to: {webhook_full_url} on port {PORT}")
         # Set webhook using the application instance
         application.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
+            listen="0.0.0.0", # Listen on all interfaces
+            port=PORT,        # Use the specified port (10000)
             url_path=BOT_TOKEN, # Telegram sends updates to this path
-            webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}", # Full URL for Telegram
+            webhook_url=webhook_full_url, # Full URL for Telegram
             allowed_updates=Update.ALL_TYPES
         )
     else:

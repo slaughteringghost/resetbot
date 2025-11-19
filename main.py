@@ -5,10 +5,26 @@ import random
 import requests
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
+from telegram.ext import (
+    Application, 
+    CommandHandler, 
+    CallbackQueryHandler, 
+    ContextTypes, 
+    MessageHandler, 
+    filters
+)
 
-# Bot configuration
+# Bot configuration - Use environment variable for token
 BOT_TOKEN = "8527703252:AAGfjfFTIZNj6ftncKn5EOm2Ky1b-zYTz5Q"
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN environment variable is not set!")
+
+# Use the Render-provided hostname for the webhook URL
+RENDER_EXTERNAL_HOSTNAME = 'https://resetbot-jhso.onrender.com'
+if not RENDER_EXTERNAL_HOSTNAME:
+    raise ValueError("RENDER_EXTERNAL_HOSTNAME environment variable is not set!")
+
+WEBHOOK_URL = f"https://{RENDER_EXTERNAL_HOSTNAME}"
 
 # Enable logging
 logging.basicConfig(
@@ -21,7 +37,7 @@ class InstagramResetBot:
     def __init__(self):
         self.user_states = {}
 
-    def send_password_reset(self, target: str) -> dict:
+    async def send_password_reset(self, target: str) -> dict:
         """Send password reset request to Instagram"""
         try:
             if '@' in target:
@@ -63,6 +79,7 @@ class InstagramResetBot:
                 return {"success": False, "message": f"❌ Failed: `{target}`"}
                 
         except Exception as e:
+            logger.error(f"Error during password reset request for {target}: {e}")
             return {"success": False, "message": f"❌ Error: `{target}`"}
 
     def create_start_keyboard(self) -> InlineKeyboardMarkup:
@@ -79,7 +96,7 @@ class InstagramResetBot:
         ]
         return InlineKeyboardMarkup(keyboard)
 
-    def start_command(self, update: Update, context: CallbackContext) -> None:
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send welcome message"""
         welcome_text = """🔓 Reset your Instagram account password.
         
@@ -87,64 +104,64 @@ class InstagramResetBot:
         
         keyboard = self.create_start_keyboard()
         
-        update.message.reply_text(
+        await update.message.reply_text(
             welcome_text, 
             reply_markup=keyboard,
             parse_mode='Markdown'
         )
 
-    def button_callback(self, update: Update, context: CallbackContext) -> None:
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle button callbacks"""
         query = update.callback_query
-        query.answer()
+        await query.answer()
         
         user_id = query.from_user.id
         
         if query.data == "start_reset" or query.data == "reset_again":
-            self.show_reset_input(update, context)
+            await self.show_reset_input(update, context)
 
-    def show_reset_input(self, update: Update, context: CallbackContext):
+    async def show_reset_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show reset input instructions"""
         user_id = update.callback_query.from_user.id
         self.user_states[user_id] = "waiting_target"
         
         text = """Send username, email, or phone number:"""
         
-        update.callback_query.edit_message_text(text)
+        await update.callback_query.edit_message_text(text)
 
-    def handle_text_message(self, update: Update, context: CallbackContext) -> None:
+    async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle text messages"""
         user_id = update.effective_user.id
         state = self.user_states.get(user_id)
         
         if state == "waiting_target":
-            self.process_reset(update, context)
+            await self.process_reset(update, context)
         else:
             keyboard = self.create_start_keyboard()
-            update.message.reply_text(
+            await update.message.reply_text(
                 "Use the button below:",
                 reply_markup=keyboard
             )
 
-    def process_reset(self, update: Update, context: CallbackContext):
+    async def process_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Process account reset"""
         user_id = update.effective_user.id
         target = update.message.text.strip()
         
         self.user_states[user_id] = None
         
-        processing_msg = update.message.reply_text(f"🔄 Processing `{target}`...", parse_mode='Markdown')
+        processing_msg = await update.message.reply_text(f"🔄 Processing `{target}`...", parse_mode='Markdown')
         
-        result = self.send_password_reset(target)
+        result = await self.send_password_reset(target)
         keyboard = self.create_reset_again_keyboard()
         
-        processing_msg.edit_text(
+        await processing_msg.edit_text(
             result['message'],
             parse_mode='Markdown',
             reply_markup=keyboard
         )
 
-    def error_handler(self, update: Update, context: CallbackContext) -> None:
+    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Log errors"""
         logger.error(f"Exception: {context.error}")
 
@@ -154,35 +171,33 @@ def main() -> None:
     
     bot = InstagramResetBot()
     
-    # Create updater
-    updater = Updater(BOT_TOKEN)
-    dispatcher = updater.dispatcher
+    # Create application
+    application = Application.builder().token(BOT_TOKEN).build()
     
     # Add handlers
-    dispatcher.add_handler(CommandHandler("start", bot.start_command))
-    dispatcher.add_handler(CallbackQueryHandler(bot.button_callback))
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, bot.handle_text_message))
-    dispatcher.add_error_handler(bot.error_handler)
-    
-    # Get port for webhook
+    application.add_handler(CommandHandler("start", bot.start_command))
+    application.add_handler(CallbackQueryHandler(bot.button_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text_message))
+    application.add_error_handler(bot.error_handler)
+
+    # Get port for webhook (Render sets this)
     PORT = int(os.environ.get('PORT', 8443))
     
+    # Check if running on Render
     if os.environ.get('RENDER'):
-        # Webhook mode for Render
-        WEBHOOK_URL = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}"
-        print(f"🌐 Starting webhook on {WEBHOOK_URL}:{PORT}")
-        updater.start_webhook(
+        print(f"🌐 Setting webhook to: {WEBHOOK_URL}/{BOT_TOKEN}")
+        # Set webhook using the application instance
+        application.run_webhook(
             listen="0.0.0.0",
             port=PORT,
-            url_path=BOT_TOKEN,
-            webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}"
+            url_path=BOT_TOKEN, # Telegram sends updates to this path
+            webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}", # Full URL for Telegram
+            allowed_updates=Update.ALL_TYPES
         )
-        updater.idle()
     else:
-        # Polling mode for local development
-        print("🚀 Bot running with polling...")
-        updater.start_polling()
-        updater.idle()
+        # Polling mode for local development (optional)
+        print("🚀 Bot running with polling (local mode)...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()

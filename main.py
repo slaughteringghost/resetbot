@@ -8,7 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
 
 # Bot configuration
-BOT_TOKEN = "8256075803:AAEBqIpIC514IcY-9HptJyAJA4XIdP8CDog"
+BOT_TOKEN = "8527703252:AAGfjfFTIZNj6ftncKn5EOm2Ky1b-zYTz5Q"
 
 # Enable logging
 logging.basicConfig(
